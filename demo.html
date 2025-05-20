@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微信赞赏码支付</title>
+    <!-- 引入Element Plus样式 -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <!-- 引入Element Plus图标 -->
+    <link rel="stylesheet" href="https://unpkg.com/@element-plus/icons-vue/dist/index.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f7fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #409EFF;
+            margin: 0;
+            padding: 20px 0;
+        }
+        .payment-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .qr-code {
+            width: 200px;
+            height: 200px;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 10px;
+        }
+        .countdown {
+            font-size: 24px;
+            color: #409EFF;
+            margin: 20px 0;
+        }
+        .tabs {
+            margin-top: 20px;
+        }
+        .payment-list {
+            margin-top: 20px;
+        }
+        .status-badge {
+            margin-left: 10px;
+        }
+        .el-table {
+            margin-top: 20px;
+        }
+        .payment-info {
+            text-align: left;
+            margin: 20px 0;
+        }
+        .payment-info p {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        .payment-info .label {
+            color: #909399;
+            margin-right: 10px;
+        }
+        .payment-info .value {
+            color: #303133;
+            font-weight: bold;
+        }
+        .remark-form {
+            max-width: 400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .qr-section {
+            margin-top: 20px;
+        }
+        .payment-tips {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f0f9eb;
+            border-radius: 4px;
+            color: #67c23a;
+        }
+        .tip-text {
+            font-size: 12px;
+            color: #909399;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <div class="header">
+                <h1>微信赞赏码支付</h1>
+            </div>
+
+            <el-tabs v-model="activeTab" class="tabs">
+                <el-tab-pane label="支付" name="payment">
+                    <div v-if="serviceChecking" class="payment-card">
+                        <el-skeleton :rows="3" animated />
+                    </div>
+                    <div v-else-if="!serviceRunning" class="payment-card">
+                        <el-alert
+                            title="服务未运行"
+                            type="error"
+                            description="请确保微信支付监控服务正在运行"
+                            show-icon>
+                        </el-alert>
+                    </div>
+                    <div v-else class="payment-card">
+                        <h2>请使用微信扫码支付</h2>
+                        
+                        <!-- 留言输入表单 -->
+                        <div class="remark-form" v-if="!showQRCode">
+                            <el-form ref="paymentFormRef" :model="paymentForm" :rules="paymentRules" label-width="100px">
+                                <el-form-item label="付款留言" prop="message">
+                                    <el-input v-model="paymentForm.message" placeholder="请输入付款留言"></el-input>
+                                </el-form-item>
+                                <el-form-item>
+                                    <el-button type="primary" @click="showQRCodeWithMessage" :disabled="!serviceRunning || serviceChecking">
+                                        {{ serviceChecking ? '检查服务状态中...' : (serviceRunning ? '显示赞赏码' : '服务未运行') }}
+                                    </el-button>
+                                </el-form-item>
+                            </el-form>
+                        </div>
+
+                        <!-- 二维码和倒计时部分 -->
+                        <div v-if="showQRCode && !paymentInfo" class="qr-section">
+                            <div class="qr-code">
+                                <img src="your-qr-code.png" alt="支付二维码" style="width: 100%; height: 100%;">
+                            </div>
+                            <div class="payment-tips">
+                                <p>请在支付时填写留言：<strong>{{ paymentForm.message }}</strong></p>
+                                <p class="tip-text">（请务必填写此留言，否则无法识别您的支付,每次留言內容请不要重复）</p>
+                            </div>
+                            <div class="countdown">
+                                支付倒计时: {{ formatTime(countdown) }}
+                            </div>
+                        </div>
+
+                        <!-- 支付成功信息 -->
+                        <div v-if="paymentInfo" class="payment-success">
+                            <el-result
+                                icon="success"
+                                title="支付成功"
+                                :sub-title="'感谢您的支付'">
+                                <template #extra>
+                                    <div class="payment-info">
+                                        <p><span class="label">支付金额:</span> <span class="value">￥{{ paymentInfo.amount }}</span></p>
+                                        <p><span class="label">支付时间:</span> <span class="value">{{ paymentInfo.timestamp }}</span></p>
+                                        <p><span class="label">付款留言:</span> <span class="value">{{ paymentInfo.message }}</span></p>
+                                        <p><span class="label">支付状态:</span> <span class="value">支付成功</span></p>
+                                    </div>
+                                    <el-button type="primary" @click="resetPayment">继续支付</el-button>
+                                </template>
+                            </el-result>
+                        </div>
+                    </div>
+                </el-tab-pane>
+
+                <el-tab-pane label="支付记录" name="records">
+                    <div class="payment-list">
+                        <el-form :inline="true" :model="searchForm" :rules="searchRules" ref="searchFormRef" class="search-form">
+                            <el-form-item label="微信ID" prop="wechat_id">
+                                <el-input v-model="searchForm.wechat_id" placeholder="请输入微信号（必填）"></el-input>
+                            </el-form-item>
+                            <el-form-item label="留言">
+                                <el-input v-model="searchForm.message" placeholder="请输入留言"></el-input>
+                            </el-form-item>
+                            <el-form-item label="时间范围">
+                                <el-date-picker
+                                    v-model="searchForm.timeRange"
+                                    type="datetimerange"
+                                    range-separator="至"
+                                    start-placeholder="开始时间"
+                                    end-placeholder="结束时间">
+                                </el-date-picker>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="searchPayments">查询</el-button>
+                            </el-form-item>
+                        </el-form>
+
+                        <el-table :data="paymentRecords" style="width: 100%">
+                            <el-table-column prop="amount" label="金额" width="120"></el-table-column>
+                            <el-table-column prop="sender" label="支付方" width="180"></el-table-column>
+                            <el-table-column prop="timestamp" label="支付时间" width="180"></el-table-column>
+                            <el-table-column prop="message" label="留言"></el-table-column>
+                            <!-- <el-table-column prop="remark" label="备注"></el-table-column> -->
+                        </el-table>
+
+                        <div class="pagination">
+                            <el-pagination
+                                @current-change="handlePageChange"
+                                :current-page="currentPage"
+                                :page-size="pageSize"
+                                :total="total"
+                                layout="total, prev, pager, next">
+                            </el-pagination>
+                        </div>
+                    </div>
+                </el-tab-pane>
+            </el-tabs>
+        </div>
+    </div>
+
+    <!-- 引入Vue3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 引入Element Plus -->
+    <script src="https://unpkg.com/element-plus"></script>
+    <!-- 引入Element Plus图标 -->
+    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <!-- 引入axios -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+    <script>
+        const { createApp, ref, onMounted, onUnmounted } = Vue
+        const { ElMessage, ElMessageBox } = ElementPlus
+
+        // API配置
+        const API_CONFIG = {
+            baseURL: 'http://127.0.0.1:5000',
+            endpoints: {
+                serviceStatus: '/api/service/status',
+                paymentCheck: '/api/payment/check',
+                paymentList: '/api/payment/list'
+            }
+        }
+
+        // 配置axios
+        axios.defaults.baseURL = API_CONFIG.baseURL
+        axios.interceptors.response.use(
+            response => response,
+            error => {
+                if (error.code === 'ERR_NETWORK') {
+                    ElMessage.error('无法连接到服务器，请确保API服务已启动')
+                }
+                return Promise.reject(error)
+            }
+        )
+
+        const app = createApp({
+            setup() {
+                const activeTab = ref('payment')
+                const serviceRunning = ref(false)
+                const serviceChecking = ref(true)
+                const countdown = ref(600)
+                const paymentInfo = ref(null)
+                const paymentRecords = ref([])
+                const currentPage = ref(1)
+                const pageSize = ref(10)
+                const total = ref(0)
+                const showQRCode = ref(false)
+                const paymentFormRef = ref(null)
+                
+                const paymentForm = ref({
+                    message: '',
+                    createTime: ''
+                })
+                
+                const searchForm = ref({
+                    wechat_id: '',
+                    message: '',
+                    timeRange: []
+                })
+
+                const searchRules = {
+                    wechat_id: [
+                        { required: true, message: '请输入微信号', trigger: 'blur' }
+                    ]
+                }
+
+                const paymentRules = {
+                    message: [
+                        { required: true, message: '请输入付款留言', trigger: 'blur' },
+                        { min: 2, max: 50, message: '留言长度在 2 到 10 个字符', trigger: 'blur' }
+                    ]
+                }
+
+                let serviceCheckInterval = null
+                let paymentCheckInterval = null
+                let countdownInterval = null
+                let retryCount = 0
+                const maxRetries = 3
+
+                // 格式化本地时间
+                const formatLocalTime = () => {
+                    const now = new Date()
+                    const year = now.getFullYear()
+                    const month = String(now.getMonth() + 1).padStart(2, '0')
+                    const day = String(now.getDate()).padStart(2, '0')
+                    const hours = String(now.getHours()).padStart(2, '0')
+                    const minutes = String(now.getMinutes()).padStart(2, '0')
+                    const seconds = String(now.getSeconds()).padStart(2, '0')
+                    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+                }
+
+                // 检查服务状态
+                const checkServiceStatus = async () => {
+                    try {
+                        const response = await axios.get(API_CONFIG.endpoints.serviceStatus)
+                        serviceRunning.value = response.data.code === 200
+                        serviceChecking.value = false
+                        if (serviceRunning.value) {
+                            retryCount = 0
+                        }
+                    } catch (error) {
+                        serviceRunning.value = false
+                        serviceChecking.value = false
+                        retryCount++
+                        
+                        if (retryCount >= maxRetries) {
+                            if (serviceCheckInterval) {
+                                clearInterval(serviceCheckInterval)
+                            }
+                            ElMessageBox.alert(
+                                '无法连接到服务，请确保：\n1. 服务已启动\n2. 服务地址正确\n3. 端口未被占用',
+                                '连接失败',
+                                {
+                                    confirmButtonText: '重试',
+                                    callback: () => {
+                                        retryCount = 0
+                                        serviceChecking.value = true
+                                        startServiceCheck()
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // 开始服务检查
+                const startServiceCheck = () => {
+                    if (serviceCheckInterval) {
+                        clearInterval(serviceCheckInterval)
+                    }
+                    checkServiceStatus()
+                    serviceCheckInterval = setInterval(checkServiceStatus, 5000)
+                }
+
+                // 显示二维码并开始检查支付
+                const showQRCodeWithMessage = async () => {
+                    if (!paymentFormRef.value) return
+                    
+                    try {
+                        await paymentFormRef.value.validate()
+                        paymentForm.value.createTime = formatLocalTime()
+                        showQRCode.value = true
+                        startCountdown()
+                        startPaymentCheck()
+                    } catch (error) {
+                        ElMessage.error('请填写正确的付款留言')
+                    }
+                }
+
+                // 开始倒计时
+                const startCountdown = () => {
+                    countdown.value = 600
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval)
+                    }
+                    countdownInterval = setInterval(() => {
+                        if (countdown.value > 0) {
+                            countdown.value--
+                        } else {
+                            clearInterval(countdownInterval)
+                            ElMessageBox.alert('支付超时，请重新开始支付', '提示', {
+                                confirmButtonText: '确定',
+                                callback: () => {
+                                    resetPayment()
+                                }
+                            })
+                        }
+                    }, 1000)
+                }
+
+                // 检查支付状态
+                const checkPaymentStatus = async () => {
+                    try {
+                        const response = await axios.get(API_CONFIG.endpoints.paymentCheck, {
+                            params: {
+                                create_time: paymentForm.value.createTime,
+                                message: paymentForm.value.message
+                            }
+                        })
+                        if (response.data.code === 200) {
+                            paymentInfo.value = response.data.data
+                            clearInterval(paymentCheckInterval)
+                            clearInterval(countdownInterval)
+                            ElMessage.success('支付成功！')
+                        }
+                    } catch (error) {
+                        console.error('检查支付状态失败:', error)
+                    }
+                }
+
+                // 开始支付检查
+                const startPaymentCheck = () => {
+                    if (paymentCheckInterval) {
+                        clearInterval(paymentCheckInterval)
+                    }
+                    paymentCheckInterval = setInterval(checkPaymentStatus, 3000)
+                }
+
+                // 格式化时间
+                const formatTime = (seconds) => {
+                    const minutes = Math.floor(seconds / 60)
+                    const remainingSeconds = seconds % 60
+                    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
+                }
+
+                // 重置支付状态
+                const resetPayment = () => {
+                    showQRCode.value = false
+                    paymentForm.value.message = ''
+                    paymentForm.value.createTime = ''
+                    countdown.value = 600
+                    paymentInfo.value = null
+                    if (paymentCheckInterval) {
+                        clearInterval(paymentCheckInterval)
+                    }
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval)
+                    }
+                }
+
+                // 查询支付记录
+                const searchPayments = async () => {
+                    try {
+                        if (!searchForm.value.wechat_id) {
+                            ElMessage.warning('请输入微信号')
+                            return
+                        }
+
+                        const params = {
+                            page: currentPage.value,
+                            page_size: pageSize.value,
+                            wechat_id: searchForm.value.wechat_id,
+                            message: searchForm.value.message
+                        }
+                        
+                        if (searchForm.value.timeRange && searchForm.value.timeRange.length === 2) {
+                            // 转换为本地时间字符串，格式：YYYY-MM-DD HH:mm:ss
+                            const formatDate = (date) => {
+                                const year = date.getFullYear()
+                                const month = String(date.getMonth() + 1).padStart(2, '0')
+                                const day = String(date.getDate()).padStart(2, '0')
+                                const hours = String(date.getHours()).padStart(2, '0')
+                                const minutes = String(date.getMinutes()).padStart(2, '0')
+                                const seconds = String(date.getSeconds()).padStart(2, '0')
+                                return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+                            }
+                            
+                            params.start_time = formatDate(searchForm.value.timeRange[0])
+                            params.end_time = formatDate(searchForm.value.timeRange[1])
+                        }
+
+                        const response = await axios.get(API_CONFIG.endpoints.paymentList, { params })
+                        if (response.data.code === 200) {
+                            paymentRecords.value = response.data.data.list
+                            total.value = response.data.data.total
+                        }
+                    } catch (error) {
+                        console.error('查询支付记录失败:', error)
+                        ElMessage.error('查询支付记录失败')
+                    }
+                }
+
+                // 处理页码变化
+                const handlePageChange = (page) => {
+                    currentPage.value = page
+                    searchPayments()
+                }
+
+                onMounted(() => {
+                    startServiceCheck()
+                })
+
+                onUnmounted(() => {
+                    if (serviceCheckInterval) clearInterval(serviceCheckInterval)
+                    if (paymentCheckInterval) clearInterval(paymentCheckInterval)
+                    if (countdownInterval) clearInterval(countdownInterval)
+                })
+
+                return {
+                    activeTab,
+                    serviceRunning,
+                    serviceChecking,
+                    countdown,
+                    paymentInfo,
+                    paymentRecords,
+                    currentPage,
+                    pageSize,
+                    total,
+                    showQRCode,
+                    paymentForm,
+                    paymentFormRef,
+                    paymentRules,
+                    searchForm,
+                    searchRules,
+                    formatTime,
+                    showQRCodeWithMessage,
+                    searchPayments,
+                    handlePageChange,
+                    resetPayment
+                }
+            }
+        })
+
+        app.use(ElementPlus)
+        app.mount('#app')
+    </script>
+</body>
+</html>

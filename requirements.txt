@@ -1,0 +1,22 @@
+# Web框架和服务器
+flask==3.0.2
+flask-cors==4.0.0
+requests==2.31.0
+
+# Windows自动化
+uiautomation==2.0.18
+pywin32==306
+
+# 异步和HTTP
+aiohttp==3.9.3
+asyncio==3.4.3  # Python内置，无需安装
+
+# 日志
+loguru==0.7.2
+
+# 工具库
+python-dateutil==2.8.2
+
+python-dotenv
+
+psutil
